@@ -26,6 +26,7 @@ from.
 Also radian is the default. Degree can be used, but generally the default is
 to assume radian.
 """
+
 from astropy import units as u
 from astropy.units import rad, deg, hourangle  # noqa
 from astropy.coordinates import (
@@ -448,3 +449,104 @@ def transform_to_new_frame(
     )
 
     return list_evt
+
+
+
+class Coordinate:
+    def __init__(self, dir_x, dir_y, dir_z, mjd, location=None):
+        """
+        Initialize the Coordinate object.
+
+        Parameters:
+            dir_x (float or array-like): x-direction cosine(s) of the event(s).
+            dir_y (float or array-like): y-direction cosine(s) of the event(s).
+            dir_z (float or array-like): z-direction cosine(s) of the event(s).
+            mjd (float or array-like): Time(s) of the event(s) in Modified Julian Date (MJD).
+            location (dict, optional): Dictionary containing latitude, longitude, and height of the detector.
+                                       Defaults to KM3NeT ARCA location.
+        """
+        # Use KM3NeT ARCA as the default location
+        if location is None:
+            location = {'lat': 36.25, 'lon': 16.05, 'height': -3500}  # KM3NeT ARCA
+            print("Using KM3NeT ARCA as the default location.")
+
+        self.dir_x = np.array(dir_x)
+        self.dir_y = np.array(dir_y)
+        self.dir_z = np.array(dir_z)
+        self.time = Time(mjd, format='mjd')  # Automatically handles arrays
+        self.location = EarthLocation(lat=location['lat'], lon=location['lon'], height=location['height'])
+    
+    def to_altaz(self):
+        """
+        Convert the local Cartesian direction (dir_x, dir_y, dir_z) to AltAz coordinates (phi, theta).
+
+        Returns:
+            tuple: (phi, theta) where:
+                phi (np.ndarray): Azimuth angles in degrees.
+                theta (np.ndarray): Zenith angles in degrees.
+        """
+        # Create a SkyCoord object with Cartesian representation
+        local_coord = SkyCoord(
+            x=self.dir_x, y=self.dir_y, z=self.dir_z, 
+            representation_type="cartesian", 
+            frame=AltAz(obstime=self.time, location=self.location)
+        )
+
+        # Convert to AltAz (horizontal) coordinates
+        altaz_coord = local_coord.transform_to(AltAz())
+
+        # Calculate zenith and azimuth in degrees
+        theta = 90 - altaz_coord.alt.deg  # Zenith angle (90° - Altitude)
+        phi = altaz_coord.az.deg  # Azimuth angle
+
+        return phi, theta
+    
+    def to_icrs(self):
+        """
+        Convert the local Cartesian direction to ICRS (Equatorial Coordinates).
+
+        Returns:
+            dict: Dictionary containing 'ra' (Right Ascension) and 'dec' (Declination) in degrees.
+        """
+        # Create a SkyCoord object with Cartesian representation
+        local_coord = SkyCoord(
+            x=self.dir_x, y=self.dir_y, z=self.dir_z,
+            representation_type="cartesian",
+            frame=AltAz(obstime=self.time, location=self.location)
+        )
+
+        # Convert from AltAz to ICRS (equatorial coordinates)
+        icrs_coord = local_coord.transform_to("icrs")
+        return {'ra': icrs_coord.ra.deg, 'dec': icrs_coord.dec.deg}
+    
+    def to_galactic(self):
+        """
+        Convert the local Cartesian direction to Galactic Coordinates.
+
+        Returns:
+            dict: Dictionary containing 'l' (Galactic Longitude) and 'b' (Galactic Latitude) in degrees.
+        """
+        # First, convert to ICRS (Equatorial Coordinates)
+        icrs_coord = self.to_icrs()
+
+        # Convert from ICRS to Galactic Coordinates
+        galactic_coord = SkyCoord(ra=icrs_coord['ra'], dec=icrs_coord['dec'], unit='deg', frame="icrs").transform_to("galactic")
+        return {'l': galactic_coord.l.deg, 'b': galactic_coord.b.deg}
+    
+    def to_fk5(self):
+        """
+        Convert the local Cartesian direction to FK5 (J2000 Equatorial Coordinates).
+
+        Returns:
+            dict: Dictionary containing 'ra' (Right Ascension) and 'dec' (Declination) in degrees.
+        """
+        # Create a SkyCoord object with Cartesian representation
+        local_coord = SkyCoord(
+            x=self.dir_x, y=self.dir_y, z=self.dir_z,
+            representation_type="cartesian",
+            frame=AltAz(obstime=self.time, location=self.location)
+        )
+
+        # Convert from AltAz to FK5 (J2000)
+        fk5_coord = local_coord.transform_to('fk5')
+        return {'ra': fk5_coord.ra.deg, 'dec': fk5_coord.dec.deg}
